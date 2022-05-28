@@ -92,6 +92,7 @@ func (t *MemoryBackend[T]) DelEntry(spaceID string, key string, version uint64) 
 
 	entry.Deleted = true
 	entry.LastModifiedAt = time.Now()
+	entry.Version = version
 	t.entries.Put(makeKey(spaceID, key), entry)
 	return nil
 }
@@ -123,6 +124,7 @@ func (t *MemoryBackend[T]) SetCookie(spaceID string, version uint64) {
 	if space, ok := t.spaces.Get(spaceID); ok {
 		space.LastModifiedAt = time.Now()
 		space.Version = version
+		t.spaces.Put(spaceID, space)
 		return
 	}
 
@@ -153,6 +155,7 @@ func (t *MemoryBackend[T]) SetLastMutationID(clientID string, lastMutationID uin
 	}
 	client.LastMutationID = lastMutationID
 	client.LastModifiedAt = time.Now()
+	t.clients.Put(clientID, client)
 }
 
 func (t *MemoryBackend[T]) GetChangedEntries(spaceID string, prevVersion uint64) []*Entry[T] {

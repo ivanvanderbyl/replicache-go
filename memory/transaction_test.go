@@ -13,7 +13,7 @@ func TestTransaction(t *testing.T) {
 	backend.PutEntry("Space1", "todo-2", "Another World", 0)
 	backend.PutEntry("Space1", "todo-2", "Another World", 1)
 
-	tx := NewInMemoryTransaction[string](backend, "Space1", "2", 2)
+	tx := ReplicacheTransaction[string](backend, "Space1", "2", 2)
 
 	a.True(tx.IsEmpty())
 

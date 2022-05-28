@@ -19,7 +19,7 @@ type InMemoryTransaction[T any] struct {
 	mu *sync.Mutex
 }
 
-func NewInMemoryTransaction[T any](backend replicache.Backend[T], spaceID string, clientID string, version uint64) replicache.ReadWriteTransaction[T] {
+func ReplicacheTransaction[T any](backend replicache.Backend[T], spaceID string, clientID string, version uint64) replicache.ReadWriteTransaction[T] {
 	return &InMemoryTransaction[T]{
 		backend:  backend,
 		mu:       &sync.Mutex{},
