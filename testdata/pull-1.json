@@ -1,0 +1,16 @@
+{
+  "lastMutationID": 9,
+  "cookie": 21,
+  "patch": [
+    {
+      "op": "put",
+      "key": "todo/gGCWGPc5IZ_n8ji6arEZu",
+      "value": {
+        "id": "gGCWGPc5IZ_n8ji6arEZu",
+        "text": "Implement go backend",
+        "completed": false,
+        "sort": 1
+      }
+    }
+  ]
+}
