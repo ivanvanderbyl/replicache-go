@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/r3labs/sse/v2"
 )
 
 type Todo struct {
@@ -41,8 +42,6 @@ func main() {
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
 	router.Use(cors.Handler(cors.Options{
-		// AllowedOrigins:   []string{"https://foo.com"}, // Use this to allow specific origin hosts
-		// AllowedOrigins: []string{"https://*", "http://*"},
 		AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
 		AllowedMethods:   []string{"POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", replicache.ReplicacheRequestIDHeader},
@@ -51,7 +50,20 @@ func main() {
 		MaxAge:           300, // Maximum value not ignored by any of major browsers
 	}))
 
+	events := sse.New()
+	router.Get("/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Access-Control-Allow-Origin", "*")
+		events.ServeHTTP(w, r)
+	})
+	events.CreateStream("mutations")
+
 	be := memory.New[Todo]()
+	// be.PutEntry("3s3rnj", "todo/ticker", Todo{
+	// 	ID:        "ticket",
+	// 	Text:      "Ticker",
+	// 	Completed: false,
+	// 	Sort:      0,
+	// }, 1)
 	lock := &sync.Mutex{}
 
 	rep := replicache.New[Todo](replicache.WithAuth(func(ctx context.Context, token string) bool {
@@ -64,8 +76,6 @@ func main() {
 		lock.Lock()
 		defer lock.Unlock()
 
-		// fmt.Printf("Cookie=%v\n", pr.Cookie)
-
 		lastMutationID, ok := be.GetLastMutationID(pr.ClientID)
 		if !ok {
 			lastMutationID = 0
@@ -75,19 +85,22 @@ func main() {
 			responseCookie = 0
 		}
 
-		entries := be.GetChangedEntries(spaceID, pr.Cookie)
-
 		resp := replicache.PullResponse[Todo]{
 			LastMutationID: lastMutationID,
 			Cookie:         responseCookie,
 			Patch:          []replicache.PatchOperation[Todo]{},
 		}
 
+		if pr.Cookie == 0 {
+			resp.Patch = append(resp.Patch, replicache.PatchOperation[Todo]{
+				Op: replicache.PatchClear,
+			})
+		}
+
+		entries := be.GetChangedEntries(spaceID, pr.Cookie)
+
 		for _, entry := range entries {
-			key := todoKey(entry.Value.ID)
-
-			fmt.Printf("- Entry: %s - %s\n", key, entry.Value.String())
-
+			key := todoKey(entry.Key)
 			if entry.Deleted {
 				resp.Patch = append(resp.Patch, replicache.PatchOperation[Todo]{
 					Op:  replicache.PatchDel,
@@ -109,15 +122,6 @@ func main() {
 		lock.Lock()
 		defer lock.Unlock()
 
-		defer func() {
-			fmt.Printf("Total entries: %d\n", be.Size())
-			entries := be.GetEntries(spaceID, "")
-			for _, entry := range entries {
-				fmt.Printf("- %s\n", entry.Value.String())
-			}
-
-		}()
-
 		prevVersion, ok := be.GetCookie(spaceID)
 		if !ok {
 			prevVersion = 0
@@ -129,8 +133,8 @@ func main() {
 			lastMutationID = 0
 		}
 
-		log.Printf("nextVersion: %d", nextVersion)
-		log.Printf("lastMutationID: %d", lastMutationID)
+		// log.Printf("nextVersion: %d", nextVersion)
+		// log.Printf("lastMutationID: %d", lastMutationID)
 
 		tx := memory.ReplicacheTransaction[Todo](be, spaceID, pr.ClientID, nextVersion)
 
@@ -173,9 +177,9 @@ func main() {
 					return err
 				}
 
-				log.Printf("Update todo: %s", update.ID)
+				// log.Printf("Update todo: %s", update.ID)
 
-				todo, err := tx.Get(todoKey(update.ID))
+				todo, err := tx.Get(update.ID)
 				if err != nil {
 					return err
 				}
@@ -191,11 +195,11 @@ func main() {
 				if todo.Sort != update.Changes.Sort {
 					todo.Sort = update.Changes.Sort
 				}
-				if todo.Text != update.Changes.Text {
+				if todo.Text != update.Changes.Text && update.Changes.Text != "" {
 					todo.Text = update.Changes.Text
 				}
 
-				tx.Put(todoKey(update.ID), todo)
+				tx.Put(todoKey(todo.ID), todo)
 
 				// be.PutEntry(spaceID, todoKey(update.ID), todo, nextVersion)
 
@@ -230,12 +234,15 @@ func main() {
 			}
 
 			lastMutationID = expectedMutationID
-			log.Printf("Processed mutation")
 		}
 
 		be.SetLastMutationID(pr.ClientID, lastMutationID)
 		be.SetCookie(spaceID, nextVersion)
 		tx.Flush()
+
+		events.Publish("mutations", &sse.Event{
+			Data: []byte("ping"),
+		})
 
 		return nil
 	})
